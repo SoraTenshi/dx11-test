@@ -73,33 +73,33 @@ fn createWindow(hInstance: HINSTANCE) void {
 
     wnd_dc = GetDC(wnd).?;
     const dpi = GetDpiForWindow(wnd);
-    const xCenter = @divFloor(GetSystemMetricsForDpi(@intFromEnum(ui.SM_CXSCREEN), dpi), 2);
-    const yCenter = @divFloor(GetSystemMetricsForDpi(@intFromEnum(ui.SM_CYSCREEN), dpi), 2);
-    wnd_size.left = xCenter - @divFloor(g_width, 2);
-    wnd_size.top = yCenter - @divFloor(g_height, 2);
+    const xcenter = @divFloor(GetSystemMetricsForDpi(@intFromEnum(ui.SM_CXSCREEN), dpi), 2);
+    const ycenter = @divFloor(GetSystemMetricsForDpi(@intFromEnum(ui.SM_CYSCREEN), dpi), 2);
+    wnd_size.left = xcenter - @divFloor(g_width, 2);
+    wnd_size.top = ycenter - @divFloor(g_height, 2);
     wnd_size.right = wnd_size.left + @divFloor(g_width, 2);
     wnd_size.bottom = wnd_size.top + @divFloor(g_height, 2);
     _ = ui.SetWindowPos(wnd, null, wnd_size.left, wnd_size.top, wnd_size.right, wnd_size.bottom, ui.SWP_NOCOPYBITS);
 }
 
-fn windowProc(hWnd: HWND, uMsg: UINT, wParam: w.WPARAM, lParam: w.LPARAM) callconv(WINAPI) w.LRESULT {
-    switch (uMsg) {
+fn windowProc(hwnd: HWND, umsg: UINT, wparam: w.WPARAM, lparam: w.LPARAM) callconv(WINAPI) w.LRESULT {
+    switch (umsg) {
         ui.WM_DESTROY => {
             ui.PostQuitMessage(0);
             return 0;
         },
         ui.WM_PAINT => {
             var ps: win.graphics.gdi.PAINTSTRUCT = undefined;
-            const hdc: HDC = BeginPaint(hWnd, &ps) orelse undefined;
+            const hdc: HDC = BeginPaint(hwnd, &ps) orelse undefined;
             _ = FillRect(hdc, @ptrCast(&ps.rcPaint), @ptrFromInt(@intFromEnum(ui.COLOR_WINDOW) + 1));
-            _ = EndPaint(hWnd, &ps);
+            _ = EndPaint(hwnd, &ps);
         },
         ui.WM_SIZE => {
-            g_ResizeWidth = LOWORD(lParam);
-            g_ResizeHeight = HIWORD(lParam);
+            g_ResizeWidth = loword(lparam);
+            g_ResizeHeight = hiword(lparam);
         },
         ui.WM_KEYDOWN, ui.WM_SYSKEYDOWN => {
-            switch (wParam) {
+            switch (wparam) {
                 @intFromEnum(win.ui.input.keyboard_and_mouse.VK_ESCAPE) => { //SHIFT+ESC = EXIT
                     if (GetAsyncKeyState(@intFromEnum(win.ui.input.keyboard_and_mouse.VK_LSHIFT)) & 0x01 == 1) {
                         ui.PostQuitMessage(0);
@@ -112,7 +112,7 @@ fn windowProc(hWnd: HWND, uMsg: UINT, wParam: w.WPARAM, lParam: w.LPARAM) callco
         else => _ = .{},
     }
 
-    return ui.DefWindowProcW(hWnd, uMsg, wParam, lParam);
+    return ui.DefWindowProcW(hwnd, umsg, wparam, lparam);
 }
 
 pub export fn wWinMain(instance: HINSTANCE, prev_instance: ?HINSTANCE, cmd_line: ?LPWSTR, cmd_show: INT) callconv(WINAPI) INT {
@@ -123,8 +123,8 @@ pub export fn wWinMain(instance: HINSTANCE, prev_instance: ?HINSTANCE, cmd_line:
     defer _ = UnregisterClassW(wnd_title, instance);
     defer _ = DestroyWindow(wnd);
 
-    if (!CreateDeviceD3D(wnd)) {
-        CleanupDeviceD3D();
+    if (!createDeviceD3D(wnd)) {
+        cleanupDeviceD3D();
         return 1;
     }
 
@@ -145,11 +145,11 @@ pub export fn wWinMain(instance: HINSTANCE, prev_instance: ?HINSTANCE, cmd_line:
         if (done) break;
 
         if (g_ResizeWidth != 0 and g_ResizeHeight != 0) {
-            CleanupRenderTarget();
+            cleanupRenderTarget();
             _ = g_pSwapChain.?.vtable.ResizeBuffers(g_pSwapChain.?, 0, g_ResizeWidth, g_ResizeHeight, dxgic.DXGI_FORMAT_UNKNOWN, 0);
             g_ResizeWidth = 0;
             g_ResizeHeight = 0;
-            CreateRenderTarget();
+            createRenderTarget();
         }
 
         g_pd3dDeviceContext.?.vtable.OMSetRenderTargets(g_pd3dDeviceContext.?, 1, @ptrCast(&g_mainRenderTargetView), null);
@@ -162,12 +162,12 @@ pub export fn wWinMain(instance: HINSTANCE, prev_instance: ?HINSTANCE, cmd_line:
         _ = g_pSwapChain.?.vtable.Present(g_pSwapChain.?, 0, 0);
     }
 
-    CleanupDeviceD3D();
+    cleanupDeviceD3D();
     return 0;
 }
 
 // DIRECTX 11
-fn CreateDeviceD3D(hWnd: HWND) bool {
+fn createDeviceD3D(hWnd: HWND) bool {
     var rc: RECT = undefined;
     _ = GetClientRect(hWnd, &rc);
     const width: UINT = @as(c_uint, @intCast(rc.right - rc.left));
@@ -204,7 +204,7 @@ fn CreateDeviceD3D(hWnd: HWND) bool {
     if (res != win.foundation.S_OK)
         return false;
 
-    CreateRenderTarget();
+    createRenderTarget();
     g_pd3dDeviceContext.?.vtable.OMSetRenderTargets(g_pd3dDeviceContext.?, 1, @ptrCast(&g_mainRenderTargetView), null);
 
     var vp: dx.D3D11_VIEWPORT = undefined;
@@ -227,16 +227,16 @@ fn CreateDeviceD3D(hWnd: HWND) bool {
     g_pd3dDeviceContext.?.vtable.IASetInputLayout(g_pd3dDeviceContext.?, g_pVertexLayout);
 
     var vertices = [_]SimpleVertex{
-        .{ .position = XMFLOAT3{ .x = 0.0, .y = 0.95, .z = 0.0 }, .color = XMFLOAT4{ .r = 1.0, .g = 0.0, .b = 0.0, .a = 1.0 } },
-        .{ .position = XMFLOAT3{ .x = 0.95, .y = -0.95, .z = 0.0 }, .color = XMFLOAT4{ .r = 0.0, .g = 0.0, .b = 1.0, .a = 1.0 } },
-        .{
-            .position = XMFLOAT3{ .x = -0.95, .y = -0.95, .z = 0.0 },
-            .color = XMFLOAT4{ .r = 0.0, .g = 1.0, .b = 0.0, .a = 1.0 },
-        },
+        .{ .position = XMFLOAT3{ .x = -0.45, .y = 0.5, .z = 0.0 }, .color = XMFLOAT4{ .r = 1.0, .g = 0.0, .b = 0.0, .a = 1.0 } },
+        .{ .position = XMFLOAT3{ .x = 0.45, .y = 0.5, .z = 0.0 }, .color = XMFLOAT4{ .r = 0.0, .g = 1.0, .b = 0.0, .a = 1.0 } },
+        .{ .position = XMFLOAT3{ .x = -0.45, .y = -0.5, .z = 0.0 }, .color = XMFLOAT4{ .r = 0.0, .g = 0.0, .b = 1.0, .a = 1.0 } },
+        .{ .position = XMFLOAT3{ .x = 0.45, .y = -0.5, .z = 0.0 }, .color = XMFLOAT4{ .r = 1.0, .g = 0.0, .b = 0.0, .a = 1.0 } },
+        .{ .position = XMFLOAT3{ .x = -0.45, .y = -0.5, .z = 0.0 }, .color = XMFLOAT4{ .r = 0.0, .g = 0.0, .b = 1.0, .a = 1.0 } },
+        .{ .position = XMFLOAT3{ .x = 0.45, .y = 0.5, .z = 0.0 }, .color = XMFLOAT4{ .r = 0.0, .g = 1.0, .b = 0.0, .a = 1.0 } },
     };
     var bd: dx.D3D11_BUFFER_DESC = std.mem.zeroes(dx.D3D11_BUFFER_DESC);
     bd.Usage = dx.D3D11_USAGE_DEFAULT;
-    bd.ByteWidth = @sizeOf(SimpleVertex) * 3;
+    bd.ByteWidth = @sizeOf(SimpleVertex) * vertices.len;
     bd.BindFlags = dx.D3D11_BIND_VERTEX_BUFFER;
     bd.CPUAccessFlags = .{};
     var InitData: dx.D3D11_SUBRESOURCE_DATA = undefined;
@@ -255,8 +255,8 @@ fn CreateDeviceD3D(hWnd: HWND) bool {
     return true;
 }
 
-fn CleanupDeviceD3D() void {
-    CleanupRenderTarget();
+fn cleanupDeviceD3D() void {
+    cleanupRenderTarget();
     _ = g_pSwapChain.?.vtable.base.base.base.Release(@ptrCast(g_pSwapChain.?));
     _ = g_pd3dDeviceContext.?.vtable.base.base.Release(@ptrCast(g_pd3dDeviceContext.?));
     _ = g_pd3dDevice.?.vtable.base.Release(@ptrCast(g_pd3dDevice.?));
@@ -269,7 +269,7 @@ fn CleanupDeviceD3D() void {
     g_pd3dDevice = null;
 }
 
-fn CreateRenderTarget() void {
+fn createRenderTarget() void {
     var pBackBuffer: ?*dx.ID3D11Texture2D = null;
 
     _ = g_pSwapChain.?.vtable.GetBuffer(g_pSwapChain.?, 0, dx.IID_ID3D11Texture2D, @as([*c]?*anyopaque, @ptrCast(&pBackBuffer)));
@@ -277,17 +277,17 @@ fn CreateRenderTarget() void {
     _ = pBackBuffer.?.vtable.base.base.base.Release(@ptrCast(pBackBuffer.?));
 }
 
-fn CleanupRenderTarget() void {
+fn cleanupRenderTarget() void {
     if (g_mainRenderTargetView) |mRTV| {
         _ = mRTV.vtable.base.base.base.Release(@ptrCast(g_mainRenderTargetView.?));
         g_mainRenderTargetView = null;
     }
 }
 
-fn LOWORD(l: w.LONG_PTR) UINT {
+fn loword(l: w.LONG_PTR) UINT {
     return @as(u32, @intCast(l)) & 0xFFFF;
 }
-fn HIWORD(l: w.LONG_PTR) UINT {
+fn hiword(l: w.LONG_PTR) UINT {
     return (@as(u32, @intCast(l)) >> 16) & 0xFFFF;
 }
 
