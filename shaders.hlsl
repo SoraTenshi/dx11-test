@@ -21,6 +21,6 @@ SamplerState samplerState : register(s0);
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    float4 texColor = myTexture.Sample(samplerState, input.texcoord);
-    return texColor * input.color;
+    return myTexture.Sample(samplerState, input.texcoord);
+    // return texColor * input.color;
 }

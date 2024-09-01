@@ -290,33 +290,33 @@ fn createDeviceD3D(hWnd: HWND) bool {
     var vertices = [_]SimpleVertex{
         .{
             .position = XMFLOAT3{ .x = -0.45, .y = 0.5, .z = 0.0 },
-            .color = XMFLOAT4{ .r = 1.0, .g = 0.0, .b = 0.0, .a = 1.0 },
-            .texcoord = XMFLOAT2{ .x = 1.0, .y = 0.0 },
+            .color = XMFLOAT4{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
+            .texcoord = XMFLOAT2{ .x = 0.0, .y = 0.0 },
         },
         .{
             .position = XMFLOAT3{ .x = 0.45, .y = 0.5, .z = 0.0 },
-            .color = XMFLOAT4{ .r = 0.0, .g = 1.0, .b = 0.0, .a = 1.0 },
+            .color = XMFLOAT4{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
             .texcoord = XMFLOAT2{ .x = 1.0, .y = 0.0 },
         },
         .{
             .position = XMFLOAT3{ .x = -0.45, .y = -0.5, .z = 0.0 },
-            .color = XMFLOAT4{ .r = 0.0, .g = 0.0, .b = 1.0, .a = 1.0 },
-            .texcoord = XMFLOAT2{ .x = 1.0, .y = 0.0 },
+            .color = XMFLOAT4{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
+            .texcoord = XMFLOAT2{ .x = 0.0, .y = 1.0 },
         },
         .{
             .position = XMFLOAT3{ .x = 0.45, .y = -0.5, .z = 0.0 },
-            .color = XMFLOAT4{ .r = 1.0, .g = 0.0, .b = 0.0, .a = 1.0 },
-            .texcoord = XMFLOAT2{ .x = 0.0, .y = 1.0 },
+            .color = XMFLOAT4{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
+            .texcoord = XMFLOAT2{ .x = 1.0, .y = 1.0 },
         },
         .{
             .position = XMFLOAT3{ .x = -0.45, .y = -0.5, .z = 0.0 },
-            .color = XMFLOAT4{ .r = 0.0, .g = 0.0, .b = 1.0, .a = 1.0 },
+            .color = XMFLOAT4{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
             .texcoord = XMFLOAT2{ .x = 0.0, .y = 1.0 },
         },
         .{
             .position = XMFLOAT3{ .x = 0.45, .y = 0.5, .z = 0.0 },
-            .color = XMFLOAT4{ .r = 0.0, .g = 1.0, .b = 0.0, .a = 1.0 },
-            .texcoord = XMFLOAT2{ .x = 0.0, .y = 1.0 },
+            .color = XMFLOAT4{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
+            .texcoord = XMFLOAT2{ .x = 1.0, .y = 0.0 },
         },
     };
     var bd: dx.D3D11_BUFFER_DESC = std.mem.zeroes(dx.D3D11_BUFFER_DESC);
@@ -350,9 +350,10 @@ fn createDeviceD3D(hWnd: HWND) bool {
     };
 
     var resource_data: dx.D3D11_SUBRESOURCE_DATA = std.mem.zeroes(dx.D3D11_SUBRESOURCE_DATA);
-    const texture_data = [2 * 2]UINT{ 0xFFFF00FF, 0xFFFF0000, 0xFF0000FF, 0xFF0000FF };
+    // NOTE: Endianness is hard to debug ^^
+    const texture_data = [_]u8{ 0xFF, 0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF };
     resource_data.pSysMem = &texture_data;
-    resource_data.SysMemPitch = 2 * 2 * 4;
+    resource_data.SysMemPitch = 2 * 4;
 
     const result = g_pd3dDevice.?.vtable.CreateTexture2D(
         g_pd3dDevice.?,
@@ -410,7 +411,7 @@ fn createDeviceD3D(hWnd: HWND) bool {
     _ = pPSBlob.?.vtable.base.Release(@ptrCast(pPSBlob.?));
 
     var samp_desc: dx.D3D11_SAMPLER_DESC = std.mem.zeroes(dx.D3D11_SAMPLER_DESC);
-    samp_desc.Filter = dx.D3D11_FILTER.MIN_MAG_MIP_LINEAR;
+    samp_desc.Filter = dx.D3D11_FILTER.MIN_MAG_POINT_MIP_LINEAR;
     samp_desc.AddressU = dx.D3D11_TEXTURE_ADDRESS_MODE.WRAP;
     samp_desc.AddressV = dx.D3D11_TEXTURE_ADDRESS_MODE.WRAP;
     samp_desc.AddressW = dx.D3D11_TEXTURE_ADDRESS_MODE.WRAP;
