@@ -42,10 +42,15 @@ var g_pVertexShader: ?*dx.ID3D11VertexShader = null;
 var g_pPixelShader: ?*dx.ID3D11PixelShader = null;
 var g_pVertexLayout: ?*dx.ID3D11InputLayout = null;
 var g_pVertexBuffer: ?*dx.ID3D11Buffer = null;
+// below leaks memory, i just don't care for now.
+var g_pTextureView: ?*dx.ID3D11ShaderResourceView = null;
+var g_pTexture2D: ?*dx.ID3D11Texture2D = null;
+var g_pSamplerState: ?*dx.ID3D11SamplerState = null;
 
+const XMFLOAT2 = struct { x: f32, y: f32 };
 const XMFLOAT3 = struct { x: f32, y: f32, z: f32 };
 const XMFLOAT4 = struct { r: f32, g: f32, b: f32, a: f32 };
-const SimpleVertex = struct { position: XMFLOAT3, color: XMFLOAT4 };
+const SimpleVertex = struct { position: XMFLOAT3, color: XMFLOAT4, texcoord: XMFLOAT2 };
 
 fn createWindow(hInstance: HINSTANCE) void {
     const wnd_class: WNDCLASSEX = .{
@@ -131,7 +136,7 @@ pub export fn wWinMain(instance: HINSTANCE, prev_instance: ?HINSTANCE, cmd_line:
     _ = ShowWindow(wnd, cmd_show);
     _ = UpdateWindow(wnd);
 
-    var clear_color = [_]f32{ 0.145, 0.145, 0.145, 1.0 };
+    var clear_color = [_]f32{ 0.345, 0.345, 0.345, 1.0 };
     var done = false;
     var msg: ui.MSG = std.mem.zeroes(ui.MSG);
     while (!done) {
@@ -157,6 +162,8 @@ pub export fn wWinMain(instance: HINSTANCE, prev_instance: ?HINSTANCE, cmd_line:
 
         g_pd3dDeviceContext.?.vtable.VSSetShader(g_pd3dDeviceContext.?, g_pVertexShader, null, 0);
         g_pd3dDeviceContext.?.vtable.PSSetShader(g_pd3dDeviceContext.?, g_pPixelShader, null, 0);
+        g_pd3dDeviceContext.?.vtable.PSSetShaderResources(g_pd3dDeviceContext.?, 0, 1, @ptrCast(&g_pTextureView));
+        g_pd3dDeviceContext.?.vtable.PSSetSamplers(g_pd3dDeviceContext.?, 0, 1, @ptrCast(&g_pSamplerState));
         g_pd3dDeviceContext.?.vtable.Draw(g_pd3dDeviceContext.?, 6, 0);
 
         _ = g_pSwapChain.?.vtable.Present(g_pSwapChain.?, 0, 0);
@@ -196,10 +203,36 @@ fn createDeviceD3D(hWnd: HWND) bool {
     //createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
     var featureLevel: d3d.D3D_FEATURE_LEVEL = undefined;
     const featureLevelArray = &[_]d3d.D3D_FEATURE_LEVEL{ d3d.D3D_FEATURE_LEVEL_11_0, d3d.D3D_FEATURE_LEVEL_10_0 };
-    var res: win.foundation.HRESULT = dx.D3D11CreateDeviceAndSwapChain(null, d3d.D3D_DRIVER_TYPE_HARDWARE, null, createDeviceFlags, featureLevelArray, 2, dx.D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext);
+    var res: win.foundation.HRESULT = dx.D3D11CreateDeviceAndSwapChain(
+        null,
+        d3d.D3D_DRIVER_TYPE_HARDWARE,
+        null,
+        createDeviceFlags,
+        featureLevelArray,
+        2,
+        dx.D3D11_SDK_VERSION,
+        &sd,
+        &g_pSwapChain,
+        &g_pd3dDevice,
+        &featureLevel,
+        &g_pd3dDeviceContext,
+    );
 
     if (res == dxgi.DXGI_ERROR_UNSUPPORTED) { // Try high-performance WARP software driver if hardware is not available.
-        res = dx.D3D11CreateDeviceAndSwapChain(null, d3d.D3D_DRIVER_TYPE_WARP, null, createDeviceFlags, featureLevelArray, 2, dx.D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext);
+        res = dx.D3D11CreateDeviceAndSwapChain(
+            null,
+            d3d.D3D_DRIVER_TYPE_WARP,
+            null,
+            createDeviceFlags,
+            featureLevelArray,
+            2,
+            dx.D3D11_SDK_VERSION,
+            &sd,
+            &g_pSwapChain,
+            &g_pd3dDevice,
+            &featureLevel,
+            &g_pd3dDeviceContext,
+        );
     }
     if (res != win.foundation.S_OK)
         return false;
@@ -217,22 +250,74 @@ fn createDeviceD3D(hWnd: HWND) bool {
     g_pd3dDeviceContext.?.vtable.RSSetViewports(g_pd3dDeviceContext.?, 1, @ptrCast(&vp));
 
     var pVSBlob: ?*d3d.ID3DBlob = null;
-    _ = d3d.fxc.D3DCompileFromFile(L("shaders.hlsl"), null, null, "VSMain", "vs_4_0", d3d.fxc.D3DCOMPILE_ENABLE_STRICTNESS, 0, &pVSBlob, null);
-    _ = g_pd3dDevice.?.vtable.CreateVertexShader(g_pd3dDevice.?, @ptrCast(pVSBlob.?.vtable.GetBufferPointer(pVSBlob.?)), pVSBlob.?.vtable.GetBufferSize(pVSBlob.?), null, &g_pVertexShader);
+    var error_message: ?*d3d.ID3DBlob = null;
+    const compile_shader = d3d.fxc.D3DCompileFromFile(
+        L("shaders.hlsl"),
+        null,
+        null,
+        "VSMain",
+        "vs_4_0",
+        d3d.fxc.D3DCOMPILE_ENABLE_STRICTNESS,
+        0,
+        &pVSBlob,
+        &error_message,
+    );
+    if (compile_shader != win.foundation.S_OK) {
+        defer error_message.?.base.Release(error_message.?);
+        const as_str: [*:0]const u8 = @ptrCast(error_message.?.vtable.GetBufferPointer(error_message.?));
+        std.debug.print("vertex shader compilation failed with:\n{s}\n", .{as_str});
+        std.process.exit(1);
+    }
 
-    const input_layout_desc = &[_]dx.D3D11_INPUT_ELEMENT_DESC{ .{ .SemanticName = "POSITION", .SemanticIndex = 0, .Format = dxgic.DXGI_FORMAT_R32G32B32_FLOAT, .InputSlot = 0, .AlignedByteOffset = 0, .InputSlotClass = dx.D3D11_INPUT_PER_VERTEX_DATA, .InstanceDataStepRate = 0 }, .{ .SemanticName = "COLOR", .SemanticIndex = 0, .Format = dxgic.DXGI_FORMAT_R32G32B32A32_FLOAT, .InputSlot = 0, .AlignedByteOffset = 12, .InputSlotClass = dx.D3D11_INPUT_PER_VERTEX_DATA, .InstanceDataStepRate = 0 } };
+    _ = g_pd3dDevice.?.vtable.CreateVertexShader(
+        g_pd3dDevice.?,
+        @ptrCast(pVSBlob.?.vtable.GetBufferPointer(pVSBlob.?)),
+        pVSBlob.?.vtable.GetBufferSize(pVSBlob.?),
+        null,
+        &g_pVertexShader,
+    );
+
+    const input_layout_desc = &[_]dx.D3D11_INPUT_ELEMENT_DESC{
+        .{ .SemanticName = "POSITION", .SemanticIndex = 0, .Format = dxgic.DXGI_FORMAT_R32G32B32_FLOAT, .InputSlot = 0, .AlignedByteOffset = 0, .InputSlotClass = dx.D3D11_INPUT_PER_VERTEX_DATA, .InstanceDataStepRate = 0 },
+        .{ .SemanticName = "COLOR", .SemanticIndex = 0, .Format = dxgic.DXGI_FORMAT_R32G32B32A32_FLOAT, .InputSlot = 0, .AlignedByteOffset = 12, .InputSlotClass = dx.D3D11_INPUT_PER_VERTEX_DATA, .InstanceDataStepRate = 0 },
+        .{ .SemanticName = "TEXCOORD", .SemanticIndex = 0, .Format = dxgic.DXGI_FORMAT_R32G32_FLOAT, .InputSlot = 0, .AlignedByteOffset = 28, .InputSlotClass = dx.D3D11_INPUT_PER_VERTEX_DATA, .InstanceDataStepRate = 0 },
+    };
     const numElements: UINT = input_layout_desc.len;
     _ = g_pd3dDevice.?.vtable.CreateInputLayout(g_pd3dDevice.?, input_layout_desc, numElements, @ptrCast(pVSBlob.?.vtable.GetBufferPointer(pVSBlob.?)), pVSBlob.?.vtable.GetBufferSize(pVSBlob.?), &g_pVertexLayout);
     _ = pVSBlob.?.vtable.base.Release(@ptrCast(pVSBlob.?));
     g_pd3dDeviceContext.?.vtable.IASetInputLayout(g_pd3dDeviceContext.?, g_pVertexLayout);
 
     var vertices = [_]SimpleVertex{
-        .{ .position = XMFLOAT3{ .x = -0.45, .y = 0.5, .z = 0.0 }, .color = XMFLOAT4{ .r = 1.0, .g = 0.0, .b = 0.0, .a = 1.0 } },
-        .{ .position = XMFLOAT3{ .x = 0.45, .y = 0.5, .z = 0.0 }, .color = XMFLOAT4{ .r = 0.0, .g = 1.0, .b = 0.0, .a = 1.0 } },
-        .{ .position = XMFLOAT3{ .x = -0.45, .y = -0.5, .z = 0.0 }, .color = XMFLOAT4{ .r = 0.0, .g = 0.0, .b = 1.0, .a = 1.0 } },
-        .{ .position = XMFLOAT3{ .x = 0.45, .y = -0.5, .z = 0.0 }, .color = XMFLOAT4{ .r = 1.0, .g = 0.0, .b = 0.0, .a = 1.0 } },
-        .{ .position = XMFLOAT3{ .x = -0.45, .y = -0.5, .z = 0.0 }, .color = XMFLOAT4{ .r = 0.0, .g = 0.0, .b = 1.0, .a = 1.0 } },
-        .{ .position = XMFLOAT3{ .x = 0.45, .y = 0.5, .z = 0.0 }, .color = XMFLOAT4{ .r = 0.0, .g = 1.0, .b = 0.0, .a = 1.0 } },
+        .{
+            .position = XMFLOAT3{ .x = -0.45, .y = 0.5, .z = 0.0 },
+            .color = XMFLOAT4{ .r = 1.0, .g = 0.0, .b = 0.0, .a = 1.0 },
+            .texcoord = XMFLOAT2{ .x = 1.0, .y = 0.0 },
+        },
+        .{
+            .position = XMFLOAT3{ .x = 0.45, .y = 0.5, .z = 0.0 },
+            .color = XMFLOAT4{ .r = 0.0, .g = 1.0, .b = 0.0, .a = 1.0 },
+            .texcoord = XMFLOAT2{ .x = 1.0, .y = 0.0 },
+        },
+        .{
+            .position = XMFLOAT3{ .x = -0.45, .y = -0.5, .z = 0.0 },
+            .color = XMFLOAT4{ .r = 0.0, .g = 0.0, .b = 1.0, .a = 1.0 },
+            .texcoord = XMFLOAT2{ .x = 1.0, .y = 0.0 },
+        },
+        .{
+            .position = XMFLOAT3{ .x = 0.45, .y = -0.5, .z = 0.0 },
+            .color = XMFLOAT4{ .r = 1.0, .g = 0.0, .b = 0.0, .a = 1.0 },
+            .texcoord = XMFLOAT2{ .x = 0.0, .y = 1.0 },
+        },
+        .{
+            .position = XMFLOAT3{ .x = -0.45, .y = -0.5, .z = 0.0 },
+            .color = XMFLOAT4{ .r = 0.0, .g = 0.0, .b = 1.0, .a = 1.0 },
+            .texcoord = XMFLOAT2{ .x = 0.0, .y = 1.0 },
+        },
+        .{
+            .position = XMFLOAT3{ .x = 0.45, .y = 0.5, .z = 0.0 },
+            .color = XMFLOAT4{ .r = 0.0, .g = 1.0, .b = 0.0, .a = 1.0 },
+            .texcoord = XMFLOAT2{ .x = 0.0, .y = 1.0 },
+        },
     };
     var bd: dx.D3D11_BUFFER_DESC = std.mem.zeroes(dx.D3D11_BUFFER_DESC);
     bd.Usage = dx.D3D11_USAGE_DEFAULT;
@@ -247,10 +332,94 @@ fn createDeviceD3D(hWnd: HWND) bool {
     g_pd3dDeviceContext.?.vtable.IASetVertexBuffers(g_pd3dDeviceContext.?, 0, 1, @ptrCast(&g_pVertexBuffer), @ptrCast(&stride), @ptrCast(&offset));
     g_pd3dDeviceContext.?.vtable.IASetPrimitiveTopology(g_pd3dDeviceContext.?, d3d.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+    var t2dd: dx.D3D11_TEXTURE2D_DESC = std.mem.zeroes(dx.D3D11_TEXTURE2D_DESC);
+    t2dd = .{
+        .Width = 2,
+        .Height = 2,
+        .MipLevels = 1,
+        .ArraySize = 1,
+        .Format = dxgic.DXGI_FORMAT.R8G8B8A8_UNORM,
+        .SampleDesc = .{
+            .Count = 1,
+            .Quality = 0,
+        },
+        .Usage = dx.D3D11_USAGE_DEFAULT,
+        .BindFlags = dx.D3D11_BIND_SHADER_RESOURCE,
+        .CPUAccessFlags = .{},
+        .MiscFlags = .{},
+    };
+
+    var resource_data: dx.D3D11_SUBRESOURCE_DATA = std.mem.zeroes(dx.D3D11_SUBRESOURCE_DATA);
+    const texture_data = [2 * 2]UINT{ 0xFFFF00FF, 0xFFFF0000, 0xFF0000FF, 0xFF0000FF };
+    resource_data.pSysMem = &texture_data;
+    resource_data.SysMemPitch = 2 * 2 * 4;
+
+    const result = g_pd3dDevice.?.vtable.CreateTexture2D(
+        g_pd3dDevice.?,
+        &t2dd,
+        &resource_data,
+        &g_pTexture2D,
+    );
+
+    if (result != win.foundation.S_OK) {
+        std.debug.print("Texture2D could not be created, exiting...\n", .{});
+        std.process.exit(1);
+    }
+
+    var rvd: dx.D3D11_SHADER_RESOURCE_VIEW_DESC = std.mem.zeroes(dx.D3D11_SHADER_RESOURCE_VIEW_DESC);
+    rvd = .{
+        .Format = dxgic.DXGI_FORMAT.R8G8B8A8_UNORM,
+        .ViewDimension = @enumFromInt(4), // DIMENSION_TEXTURE2D
+        .Anonymous = .{ .Texture2D = .{
+            .MostDetailedMip = 0,
+            .MipLevels = 1,
+        } },
+    };
+
+    const rv_result = g_pd3dDevice.?.vtable.CreateShaderResourceView(
+        g_pd3dDevice.?,
+        &g_pTexture2D.?.ID3D11Resource,
+        &rvd,
+        &g_pTextureView,
+    );
+
+    if (rv_result != win.foundation.S_OK) {
+        std.debug.print("ShaderResourceView could not be created\n", .{});
+        std.process.exit(1);
+    }
+
     var pPSBlob: ?*d3d.ID3DBlob = null;
-    _ = d3d.fxc.D3DCompileFromFile(L("shaders.hlsl"), null, null, "PSMain", "ps_4_0", d3d.fxc.D3DCOMPILE_ENABLE_STRICTNESS, 0, &pPSBlob, null);
+    const ps_res = d3d.fxc.D3DCompileFromFile(
+        L("shaders.hlsl"),
+        null,
+        null,
+        "PSMain",
+        "ps_4_0",
+        d3d.fxc.D3DCOMPILE_ENABLE_STRICTNESS,
+        0,
+        &pPSBlob,
+        null,
+    );
+
+    if (ps_res != win.foundation.S_OK) {
+        std.debug.print("pixel shader compilation failed\n", .{});
+        std.process.exit(1);
+    }
+
     _ = g_pd3dDevice.?.vtable.CreatePixelShader(g_pd3dDevice.?, @ptrCast(pPSBlob.?.vtable.GetBufferPointer(pPSBlob.?)), pPSBlob.?.vtable.GetBufferSize(pPSBlob.?), null, &g_pPixelShader);
     _ = pPSBlob.?.vtable.base.Release(@ptrCast(pPSBlob.?));
+
+    var samp_desc: dx.D3D11_SAMPLER_DESC = std.mem.zeroes(dx.D3D11_SAMPLER_DESC);
+    samp_desc.Filter = dx.D3D11_FILTER.MIN_MAG_MIP_LINEAR;
+    samp_desc.AddressU = dx.D3D11_TEXTURE_ADDRESS_MODE.WRAP;
+    samp_desc.AddressV = dx.D3D11_TEXTURE_ADDRESS_MODE.WRAP;
+    samp_desc.AddressW = dx.D3D11_TEXTURE_ADDRESS_MODE.WRAP;
+
+    const sampler = g_pd3dDevice.?.vtable.CreateSamplerState(g_pd3dDevice.?, &samp_desc, &g_pSamplerState);
+    if (sampler != win.foundation.S_OK) {
+        std.debug.print("sampler state could not be iniitialized\n", .{});
+        std.process.exit(1);
+    }
 
     return true;
 }
@@ -273,7 +442,12 @@ fn createRenderTarget() void {
     var pBackBuffer: ?*dx.ID3D11Texture2D = null;
 
     _ = g_pSwapChain.?.vtable.GetBuffer(g_pSwapChain.?, 0, dx.IID_ID3D11Texture2D, @as([*c]?*anyopaque, @ptrCast(&pBackBuffer)));
-    _ = g_pd3dDevice.?.vtable.CreateRenderTargetView(g_pd3dDevice.?, @as([*c]dx.ID3D11Resource, @ptrCast(pBackBuffer.?)), null, &g_mainRenderTargetView);
+    _ = g_pd3dDevice.?.vtable.CreateRenderTargetView(
+        g_pd3dDevice.?,
+        @as([*c]dx.ID3D11Resource, @ptrCast(pBackBuffer.?)),
+        null,
+        &g_mainRenderTargetView,
+    );
     _ = pBackBuffer.?.vtable.base.base.base.Release(@ptrCast(pBackBuffer.?));
 }
 
