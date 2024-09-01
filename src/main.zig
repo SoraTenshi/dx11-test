@@ -42,6 +42,7 @@ var g_pVertexShader: ?*dx.ID3D11VertexShader = null;
 var g_pPixelShader: ?*dx.ID3D11PixelShader = null;
 var g_pVertexLayout: ?*dx.ID3D11InputLayout = null;
 var g_pVertexBuffer: ?*dx.ID3D11Buffer = null;
+var g_pIndexBuffer: ?*dx.ID3D11Buffer = null;
 // below leaks memory, i just don't care for now.
 var g_pTextureView: ?*dx.ID3D11ShaderResourceView = null;
 var g_pTexture2D: ?*dx.ID3D11Texture2D = null;
@@ -164,7 +165,7 @@ pub export fn wWinMain(instance: HINSTANCE, prev_instance: ?HINSTANCE, cmd_line:
         g_pd3dDeviceContext.?.vtable.PSSetShader(g_pd3dDeviceContext.?, g_pPixelShader, null, 0);
         g_pd3dDeviceContext.?.vtable.PSSetShaderResources(g_pd3dDeviceContext.?, 0, 1, @ptrCast(&g_pTextureView));
         g_pd3dDeviceContext.?.vtable.PSSetSamplers(g_pd3dDeviceContext.?, 0, 1, @ptrCast(&g_pSamplerState));
-        g_pd3dDeviceContext.?.vtable.Draw(g_pd3dDeviceContext.?, 6, 0);
+        g_pd3dDeviceContext.?.vtable.DrawIndexed(g_pd3dDeviceContext.?, 6, 0, 0);
 
         _ = g_pSwapChain.?.vtable.Present(g_pSwapChain.?, 0, 0);
     }
@@ -308,28 +309,36 @@ fn createDeviceD3D(hWnd: HWND) bool {
             .color = XMFLOAT4{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
             .texcoord = XMFLOAT2{ .x = 1.0, .y = 1.0 },
         },
-        .{
-            .position = XMFLOAT3{ .x = -0.45, .y = -0.5, .z = 0.0 },
-            .color = XMFLOAT4{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
-            .texcoord = XMFLOAT2{ .x = 0.0, .y = 1.0 },
-        },
-        .{
-            .position = XMFLOAT3{ .x = 0.45, .y = 0.5, .z = 0.0 },
-            .color = XMFLOAT4{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
-            .texcoord = XMFLOAT2{ .x = 1.0, .y = 0.0 },
-        },
     };
+
+    var indices = [_]u16{
+        0, 1, 2,
+        2, 1, 3,
+    };
+
+    // Vertex buffer
     var bd: dx.D3D11_BUFFER_DESC = std.mem.zeroes(dx.D3D11_BUFFER_DESC);
     bd.Usage = dx.D3D11_USAGE_DEFAULT;
     bd.ByteWidth = @sizeOf(SimpleVertex) * vertices.len;
     bd.BindFlags = dx.D3D11_BIND_VERTEX_BUFFER;
     bd.CPUAccessFlags = .{};
-    var InitData: dx.D3D11_SUBRESOURCE_DATA = undefined;
-    InitData.pSysMem = &vertices;
-    _ = g_pd3dDevice.?.vtable.CreateBuffer(g_pd3dDevice.?, &bd, &InitData, &g_pVertexBuffer);
+    var vertex_data: dx.D3D11_SUBRESOURCE_DATA = undefined;
+    vertex_data.pSysMem = &vertices;
+    _ = g_pd3dDevice.?.vtable.CreateBuffer(g_pd3dDevice.?, &bd, &vertex_data, &g_pVertexBuffer);
+
+    // Indezes buffer
+    bd.Usage = dx.D3D11_USAGE_DEFAULT;
+    bd.ByteWidth = @sizeOf(u16) * indices.len;
+    bd.BindFlags = dx.D3D11_BIND_INDEX_BUFFER;
+    bd.CPUAccessFlags = .{};
+    var index_data: dx.D3D11_SUBRESOURCE_DATA = undefined;
+    index_data.pSysMem = &indices;
+    _ = g_pd3dDevice.?.vtable.CreateBuffer(g_pd3dDevice.?, &bd, &index_data, &g_pIndexBuffer);
+
     var stride: UINT = @sizeOf(SimpleVertex);
     var offset: UINT = 0;
     g_pd3dDeviceContext.?.vtable.IASetVertexBuffers(g_pd3dDeviceContext.?, 0, 1, @ptrCast(&g_pVertexBuffer), @ptrCast(&stride), @ptrCast(&offset));
+    g_pd3dDeviceContext.?.vtable.IASetIndexBuffer(g_pd3dDeviceContext.?, g_pIndexBuffer.?, dxgic.DXGI_FORMAT.R16_UINT, 0);
     g_pd3dDeviceContext.?.vtable.IASetPrimitiveTopology(g_pd3dDeviceContext.?, d3d.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     var t2dd: dx.D3D11_TEXTURE2D_DESC = std.mem.zeroes(dx.D3D11_TEXTURE2D_DESC);
